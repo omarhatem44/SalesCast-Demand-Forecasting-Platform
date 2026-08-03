@@ -1,0 +1,14 @@
+# SalesCast platform config.
+data_path: data/train_sample.csv
+artifacts_dir: artifacts
+nrows: null
+
+horizon: 7
+lookback: 14
+
+models: ["xgboost", "lstm"]
+selection_metric: "rmspe"
+
+single_group: 1
+
+schema_overrides: {}
