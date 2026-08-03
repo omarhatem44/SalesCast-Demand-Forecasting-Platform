@@ -1,0 +1,12 @@
+# Serving-only deps. TensorFlow is intentionally excluded — the served model is
+# XGBoost (it won selection); the LSTM class imports TF lazily and is never
+# loaded at serve time. Training (main.py) still needs the full requirements.txt.
+pandas
+numpy
+scikit-learn
+xgboost
+joblib
+pyyaml
+fastapi
+uvicorn[standard]
+pydantic
