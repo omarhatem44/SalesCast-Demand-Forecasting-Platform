@@ -64,20 +64,18 @@ supply-chain volume.
 
 > Replace the placeholders below with your captured images (save them under `assets/`).
 
-**Forecasting dashboard (live):**
+**Forecasting dashboard (live):**  store selector, 7-day forecast with confidence band, KPIs, inventory recommendations.
 
-<!-- <img src="assets/dashboard.png" width="900" alt="SalesCast dashboard"/> -->
-`assets/dashboard.png` — store selector, 7-day forecast with confidence band, KPIs, inventory recommendations.
+<img src="src/assets/Screenshot 2026-08-04 213050.png" width="900" alt="SalesCast dashboard"/>
 
-**Model Health panel (Phase 2 drift monitoring):**
+**Model Health panel (Phase 2 drift monitoring):** last retrain, data drift, prediction drift, model version.
 
-<!-- <img src="assets/model_health.png" width="400" alt="Model health panel"/> -->
-`assets/model_health.png` — last retrain, data drift, prediction drift, model version.
+<img src="src/assets/Screenshot 2026-08-04 213755.png" width="400" alt="Model health panel"/>
 
-**Airflow retraining DAG (conditional branching):**
 
-<!-- <img src="assets/airflow_dag.png" width="900" alt="Airflow DAG graph"/> -->
-`assets/airflow_dag.png` — the graph view showing retraining skipped when no drift is detected.
+**Airflow retraining DAG (conditional branching):** the graph view showing retraining skipped when no drift is detected.
+
+<img src="airflow/Path.png" width="900" alt="Airflow DAG graph"/>
 
 ---
 
