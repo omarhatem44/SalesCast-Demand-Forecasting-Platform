@@ -28,7 +28,6 @@ business recommendations, **monitors data drift in production**, and
 - [Why this is a platform, not a project](#-why-this-is-a-platform-not-a-project)
 - [Screenshots](#-screenshots)
 - [Architecture & design decisions](#-architecture--design-decisions)
-- [The techniques — what, why, how](#-the-techniques--what-why-and-how)
 - [Phase 1 — the forecasting MVP](#-phase-1--the-forecasting-mvp)
 - [Phase 2 — monitoring & automated retraining](#-phase-2--monitoring--automated-retraining)
 - [Quick start](#-quick-start)
