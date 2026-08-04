@@ -23,3 +23,8 @@ mlruns/
 
 .DS_Store
 Thumbs.db
+# Airflow runtime — never commit logs
+airflow/logs/
+!airflow/logs/.gitkeep
+airflow/plugins/__pycache__/
+airflow/config/
