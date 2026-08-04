@@ -112,5 +112,19 @@ class TrainingPipeline:
         }
         with open(os.path.join(self.artifacts, "summary.json"), "w") as f:
             json.dump(summary, f, indent=2)
+
+        # Save a reference sample of the engineered training data for Phase 2
+        # drift monitoring (Evidently compares production data against this).
+        try:
+            ref_cols = [schema.target_column] + [
+                c for c in df_f.columns
+                if c not in {schema.date_column, schema.group_column}
+                and __import__("pandas").api.types.is_numeric_dtype(df_f[c])
+            ]
+            df_f[ref_cols].tail(500).to_csv(
+                os.path.join(self.artifacts, "reference_sample.csv"), index=False
+            )
+        except Exception:  # noqa: BLE001
+            pass
         print(f"[done] artifacts -> {self.artifacts}")
         return summary

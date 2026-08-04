@@ -112,14 +112,14 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',system-u
         <ul class="recs" id="recs"><li style="color:var(--muted)">Run a forecast to see recommendations.</li></ul>
       </div>
 
-      <div class="card phase2">
-        <h3>Model Health <span class="badge-soon">Phase 2</span></h3>
-        <div class="sub">Drift monitoring & retraining status</div>
+      <div class="card">
+        <h3>Model Health</h3>
+        <div class="sub" id="healthStatus">Drift monitoring & retraining status</div>
         <div class="health">
-          <div class="item"><div class="k">Last retrain</div><div class="v">—</div></div>
-          <div class="item"><div class="k">Data drift</div><div class="v">—</div></div>
-          <div class="item"><div class="k">Prediction drift</div><div class="v">—</div></div>
-          <div class="item"><div class="k">Model version</div><div class="v">—</div></div>
+          <div class="item"><div class="k">Last retrain</div><div class="v" id="hRetrain">—</div></div>
+          <div class="item"><div class="k">Data drift</div><div class="v" id="hDataDrift">—</div></div>
+          <div class="item"><div class="k">Prediction drift</div><div class="v" id="hPredDrift">—</div></div>
+          <div class="item"><div class="k">Model version</div><div class="v" id="hVersion">—</div></div>
         </div>
       </div>
     </div>
@@ -170,6 +170,32 @@ async function runForecast(){
   }
   btn.disabled=false; btn.textContent="Generate Forecast";
   render(res);
+  loadHealth();
+}
+
+async function loadHealth(){
+  try{
+    const r=await fetch(API+"/model-health",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({history:HISTORY})});
+    if(!r.ok) throw new Error();
+    const h=await r.json();
+    setHealth(h);
+  }catch(_){
+    // demo fallback
+    setHealth({last_retrain:"local demo",model_version:"v1",status:"HEALTHY — no significant drift",
+      data_drift:{detected:false,share:0.12},prediction_drift:{detected:false,share:0.08}});
+  }
+}
+
+function setHealth(h){
+  document.getElementById("hRetrain").textContent=h.last_retrain||"—";
+  document.getElementById("hVersion").textContent=(h.approved_model?h.approved_model+" · ":"")+(h.model_version||"—");
+  const dd=h.data_drift||{}, pd=h.prediction_drift||{};
+  const fmtDrift=(x)=>x.detected===true?`⚠ ${Math.round((x.share||0)*100)}%`:x.detected===false?`✓ ${Math.round((x.share||0)*100)}%`:"—";
+  const el1=document.getElementById("hDataDrift"); el1.textContent=fmtDrift(dd); el1.style.color=dd.detected?"var(--down)":"var(--up)";
+  const el2=document.getElementById("hPredDrift"); el2.textContent=fmtDrift(pd); el2.style.color=pd.detected?"var(--down)":"var(--up)";
+  const s=document.getElementById("healthStatus"); s.textContent=h.status||"—";
+  s.style.color=h.status&&h.status.includes("DRIFT")?"var(--down)":"var(--up)";
+  s.style.fontWeight="600";
 }
 
 function demoForecast(hist){

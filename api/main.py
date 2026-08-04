@@ -72,6 +72,32 @@ def forecast(req: ForecastRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.get("/model-health")
+def model_health():
+    """Phase 2: drift status + model metadata for the dashboard health panel."""
+    from forecasting.pipeline.health import ModelHealthService
+    svc = ModelHealthService(ARTIFACTS)
+    # Use the reference sample itself as 'current' when no live data is posted,
+    # so the panel shows a real (no-drift) baseline instead of empty state.
+    return svc.health(current=None)
+
+
+@app.post("/model-health")
+def model_health_with_data(req: ForecastRequest):
+    """Drift check against posted recent production data."""
+    import pandas as pd
+    from forecasting.pipeline.health import ModelHealthService
+    svc = ModelHealthService(ARTIFACTS)
+    cur = pd.DataFrame(req.history)
+    # engineer current data the same way so columns line up with the reference
+    from forecasting.implementations.preprocessors.generic import (
+        CalendarFeatureEngineer, GenericPreprocessor,
+    )
+    pre = GenericPreprocessor.load(os.path.join(ARTIFACTS, "preprocessor.joblib"))
+    cur_f = CalendarFeatureEngineer().engineer(pre.transform(cur), pre.schema)
+    return svc.health(current=cur_f)
+
+
 @app.get("/")
 def home():
     idx = os.path.join("dashboard", "index.html")
