@@ -43,17 +43,9 @@ Most forecasting projects hardcode one dataset's column names and train one mode
 SalesCast is built around **SOLID interfaces** so every stage is replaceable, and the
 pipeline works on **any** business time-series with minimal configuration:
 
-```
-CSV → Profile → Schema Detection → Preprocess → Feature Engineering →
-      [ XGBoost | LSTM | (future: ARIMA, Prophet, TFT…) ] →
-      Evaluate (MAE/RMSE/RMSPE) → Auto-select best → Forecast API → Dashboard
-                                          │
-                              Drift Monitoring (Evidently/PSI)
-                                          │
-                              Airflow: retrain only when drift detected
-```
+<img src="src/assets/d75c93e3-0f33-47ca-b250-4e29c08e31c1.png" width="900" alt="SalesCast Archi"/>
 
-Rossmann retail sales is only the **first** dataset. Nothing in the pipeline is
+**Rossmann retail sales is only the first dataset**. Nothing in the pipeline is
 Rossmann-specific — the schema detector finds the date/target/feature roles
 automatically, so the same code forecasts energy demand, restaurant orders, or
 supply-chain volume.
