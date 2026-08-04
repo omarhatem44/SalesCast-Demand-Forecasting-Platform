@@ -99,59 +99,6 @@ class ProphetForecaster(IModel): ...
 # instantly available to the pipeline, selector, and API — zero other changes
 ```
 
----
-
-## 🔬 The techniques — what, why, and how
-
-This section explains each major technique, *why* it was chosen, and *how* it works here.
-
-### 1. Automatic schema detection
-- **What:** infers the date column, target, numeric/categorical features, group column, and frequency from any CSV.
-- **Why:** a platform can't assume column names. Hardcoding `"Sales"` and `"Date"` would make it a Rossmann script, not a reusable system.
-- **How:** heuristics — the date column is the one that parses to datetime for the most rows; the target matches name hints (`sales/revenue/demand/orders`) or falls back to the highest-variance numeric column; frequency is inferred from the median gap between sorted dates. A **config override** lets the user correct any uncertain guess.
-
-### 2. XGBoost baseline + LSTM, with honest auto-selection
-- **What:** two model families trained and compared; the better one is chosen automatically.
-- **Why:** deep learning is not always better. On tabular time-series with strong calendar/lag signals, gradient boosting frequently **beats** LSTMs. Forcing an LSTM to "look advanced" would be dishonest engineering. Training both and reporting the winner demonstrates judgment.
-- **How:** both implement the same `IModel` interface (multi-output for the 7-day horizon). XGBoost uses one regressor per horizon step; the LSTM is a sequence-to-vector network. `BestByMetricSelector` picks the lowest **RMSPE**. On this dataset XGBoost wins — and the system says so.
-
-### 3. RMSPE as the selection metric (not accuracy)
-- **What:** Root Mean Square Percentage Error.
-- **Why:** forecasting is regression, so "accuracy" is meaningless. RMSPE is scale-independent (a 100-unit error matters more on a 200-unit day than a 5,000-unit day) and is the exact metric the Rossmann Kaggle competition used, making results comparable. MAE and RMSE are also reported for completeness.
-- **How:** `RMSPE = sqrt(mean(((y_true - y_pred) / y_true)²))`, ignoring days where true sales are 0 (standard practice, since percentage error is undefined there).
-
-### 4. Sliding-window supervised framing
-- **What:** turn a raw time-series into `(X, y)` training pairs.
-- **Why:** both tree and sequence models need supervised examples. A window of the last *N* days predicts the next *H* days.
-- **How:** `SlidingWindowBuilder(lookback=14, horizon=7)` produces a flattened window for XGBoost and a 3D `(samples, timesteps, features)` tensor for the LSTM from the same data.
-
-### 5. Calendar + lag + rolling features
-- **What:** day-of-week, month, week-of-year, weekend flags, plus lagged and rolling-mean target values.
-- **Why:** retail demand is highly seasonal (weekends, holidays) and autocorrelated (last week predicts this week). These features give even simple models strong signal.
-- **How:** `CalendarFeatureEngineer` derives them generically from whatever the schema's date/target columns are — grouped per series when a group column (e.g. Store) exists.
-
-### 6. FastAPI for serving
-- **What:** the REST API that serves forecasts and health.
-- **Why:** FastAPI is async, fast, and auto-generates OpenAPI docs — a modern standard for ML serving.
-- **How:** `/forecast` accepts a series' recent history and returns the 7-day forecast + business insight; the API **always loads the currently approved model** (never a hardcoded one), so swapping the winner needs no API change.
-
-### 7. Drift monitoring (Evidently AI + PSI fallback) — Phase 2
-- **What:** detect when live data drifts from the training distribution.
-- **Why:** models silently decay when the world changes (new promotions, seasonality shifts). Detecting drift is what turns a one-off model into a maintainable production system.
-- **How:** the primary path uses **Evidently AI**; if Evidently isn't installed or its API version differs, the platform falls back to a built-in **PSI (Population Stability Index)** check — so monitoring never breaks. PSI compares binned distributions: `< 0.1` stable, `0.1–0.25` moderate, `> 0.25` significant drift. Training saves a `reference_sample.csv` as the baseline to compare against.
-
-### 8. Conditional retraining with Airflow — Phase 2
-- **What:** an orchestrated pipeline that retrains **only when drift is detected**.
-- **Why:** retraining on every schedule wastes compute and can even hurt a healthy model. Retraining *because* of a signal (drift) is the mature pattern. Airflow provides scheduling, retries, observability, and a UI.
-- **How:** a `BranchPythonOperator` reads the drift-detection result and routes to `retrain_model` (if drift) or `skip_retrain` (if not); both converge on `deploy_model`. See [Phase 2](#-phase-2--monitoring--automated-retraining).
-
-### 9. Slim, separated serving image
-- **What:** the deployed container excludes TensorFlow.
-- **Why:** the served model is XGBoost, so TensorFlow (large, RAM-hungry) is dead weight in production. The LSTM code imports TF lazily, so it's never loaded at serve time.
-- **How:** `Dockerfile.serve` installs `requirements-serve.txt` (no TF) — dramatically smaller image, essential on a free-tier VM.
-
----
-
 ## 🚀 Phase 1 — the forecasting MVP
 
 Generic pipeline · auto schema detection · XGBoost + LSTM · auto-selection ·
