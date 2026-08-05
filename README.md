@@ -53,8 +53,6 @@ supply-chain volume.
 
 ## 📸 Screenshots
 
-> Replace the placeholders below with your captured images (save them under `assets/`).
-
 **Forecasting dashboard (live):**  store selector, 7-day forecast with confidence band, KPIs, inventory recommendations.
 
 <img src="src/assets/Screenshot 2026-08-04 213050.png" width="900" alt="SalesCast dashboard"/>
