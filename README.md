@@ -42,7 +42,7 @@ Most forecasting projects hardcode one dataset's column names and train one mode
 SalesCast is built around **SOLID interfaces** so every stage is replaceable, and the
 pipeline works on **any** business time-series with minimal configuration:
 
-<img src="src/assets/d75c93e3-0f33-47ca-b250-4e29c08e31c1.png" width="900" alt="SalesCast Archi"/>
+<img src="src/assets/architecture.png" width="900" alt="SalesCast Archi"/>
 
 **Rossmann retail sales is only the first dataset**. Nothing in the pipeline is
 Rossmann-specific — the schema detector finds the date/target/feature roles
@@ -55,11 +55,11 @@ supply-chain volume.
 
 **Forecasting dashboard (live):**  store selector, 7-day forecast with confidence band, KPIs, inventory recommendations.
 
-<img src="src/assets/Screenshot 2026-08-04 213050.png" width="900" alt="SalesCast dashboard"/>
+<img src="src/assets/dashboard.png" width="900" alt="SalesCast dashboard"/>
 
 **Model Health panel (Phase 2 drift monitoring):** last retrain, data drift, prediction drift, model version.
 
-<img src="src/assets/Screenshot 2026-08-04 213755.png" width="400" alt="Model health panel"/>
+<img src="src/assets/model-health.png" width="400" alt="Model health panel"/>
 
 
 **Airflow retraining DAG (conditional branching):** the graph view showing retraining skipped when no drift is detected.
