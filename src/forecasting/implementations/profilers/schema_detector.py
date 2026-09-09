@@ -11,6 +11,7 @@ User overrides from config are merged on top, so uncertain guesses are fixable.
 from __future__ import annotations
 
 import re
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -77,7 +78,11 @@ class HeuristicSchemaDetector(ISchemaDetector):
             if pd.api.types.is_datetime64_any_dtype(s):
                 return self._record(conf, c, 1.0, "date")
             if s.dtype == object or "date" in c.lower() or "time" in c.lower():
-                parsed = pd.to_datetime(s, errors="coerce")
+                with warnings.catch_warnings():
+                    # Probing unknown columns for dates: mixed/failed formats are
+                    # the expected case here, not something to warn the user about.
+                    warnings.simplefilter("ignore", UserWarning)
+                    parsed = pd.to_datetime(s, errors="coerce")
                 ratio = parsed.notna().mean()
                 if ratio > best_ratio:
                     best, best_ratio = c, ratio
@@ -107,14 +112,41 @@ class HeuristicSchemaDetector(ISchemaDetector):
         raise ValueError("No numeric target column could be detected.")
 
     def _detect_group(self, df, date_col, target_col):
-        # A group column repeats dates (multiple series). Heuristic: an ID-like
-        # column where (group, date) is closer to unique than date alone.
+        """Find the column that splits the frame into separate series.
+
+        A real group column makes (group, date) unique where date alone is not.
+        Testing that, rather than trusting an ID-like name, avoids picking a
+        low-cardinality categorical (StoreType, region, channel) as the series
+        key — which would silently drop most of the data downstream when the
+        pipeline filters to a single group.
+
+        If dates are already unique the dataset is a single series and there is
+        no group column.
+        """
+        if date_col is None:
+            return None
+        dates = pd.to_datetime(df[date_col], errors="coerce")
+        if not dates.duplicated().any():
+            return None
+
+        probe = df.copy()
+        probe["__date__"] = dates
+        candidates = []
         for c in df.columns:
             if c in (date_col, target_col):
                 continue
-            if ID_HINTS.search(c) and df[c].nunique() > 1:
-                return c
-        return None
+            n_groups = df[c].nunique(dropna=True)
+            if n_groups < 2 or n_groups > 0.5 * len(df):
+                continue
+            # Does grouping by this column explain the repeated dates?
+            if probe.duplicated([c, "__date__"]).mean() < 0.01:
+                # ID-like names win ties; then the coarsest valid grouping.
+                candidates.append((0 if ID_HINTS.search(c) else 1, n_groups, c))
+
+        if not candidates:
+            return None
+        candidates.sort()
+        return candidates[0][2]
 
     def _detect_frequency(self, df, date_col, notes) -> str | None:
         try:
