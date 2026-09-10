@@ -45,8 +45,27 @@ class ModelHealthService:
         return datetime.fromtimestamp(newest, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     def _model_version(self) -> str:
-        # Phase 2: derive from artifact mtime; Phase 2b: read from MLflow registry.
-        return self.summary.get("model_version", "v1")
+        """Report the version actually serving.
+
+        Prefers the MLflow registry, because the alias is the source of truth
+        for what is in Production; falls back to what training wrote into
+        summary.json when the registry is unreachable, so the health panel
+        degrades rather than erroring.
+        """
+        registered = (self.summary.get("registry") or {}).get("registered_model")
+        name = registered or os.environ.get("MLFLOW_REGISTERED_MODEL",
+                                            "salescast-forecaster")
+        try:
+            import mlflow
+            from mlflow.tracking import MlflowClient
+
+            mlflow.set_tracking_uri(
+                os.environ.get("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
+            )
+            version = MlflowClient().get_model_version_by_alias(name, "Production")
+            return f"v{version.version} (registry)"
+        except Exception:  # noqa: BLE001
+            return self.summary.get("model_version", "v1")
 
     def health(self, current: pd.DataFrame | None = None) -> dict:
         base = {

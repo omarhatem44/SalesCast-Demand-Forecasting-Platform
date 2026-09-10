@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest -q
+
+  train-smoke:
+    name: Training smoke test
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # A green unit suite does not prove the pipeline still trains end to end,
+      # which is the failure that actually breaks the service.
+      - name: Train end-to-end and assert artifacts exist
+        run: |
+          python main.py
+          test -f artifacts/summary.json
+          test -f artifacts/preprocessor.joblib
+          python - <<'PY'
+          import json
+          s = json.load(open("artifacts/summary.json"))
+          assert s["best_model"] in {"xgboost", "lstm"}, s
+          rmspe = s["metrics"][s["best_model"]]["rmspe"]
+          # Guards against a silently broken pipeline: RMSPE near 1.0 means the
+          # model is predicting roughly zero.
+          assert 0 < rmspe < 0.5, f"selected model RMSPE looks broken: {rmspe}"
+          print("selected", s["best_model"], "rmspe", round(rmspe, 4))
+          PY
+
+  docker:
+    name: Docker images build
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build training image
+        run: docker build -t salescast-train:ci .
+
+      # The serving image is built from a clean checkout, so this fails if the
+      # image ever starts depending on files that are not committed.
+      - name: Build serving image
+        run: docker build -f Dockerfile.serve -t salescast-serve:ci .
+
+  manifests:
+    name: Kubernetes manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate manifests
+        run: |
+          curl -sSL -o kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+          tar xf kubeconform.tar.gz
+          ./kubeconform -strict -summary k8s/

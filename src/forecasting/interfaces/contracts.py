@@ -166,6 +166,31 @@ class IMonitor(ABC):
     def check_drift(self, reference: pd.DataFrame, current: pd.DataFrame) -> dict: ...
 
 
+class ITracker(ABC):
+    """Experiment tracking and model registry.
+
+    Kept as an interface so training does not depend on MLflow specifically,
+    and so a no-op implementation can stand in when tracking is unavailable.
+    """
+
+    @property
+    @abstractmethod
+    def active(self) -> bool: ...
+
+    @abstractmethod
+    def start_run(self, run_name: str, params: dict[str, Any]) -> None: ...
+
+    @abstractmethod
+    def log_results(self, results: list[EvalResult]) -> None: ...
+
+    @abstractmethod
+    def register_best(self, model_name: str, artifact_path: str,
+                      metric_name: str, metric_value: float) -> dict | None: ...
+
+    @abstractmethod
+    def end_run(self) -> None: ...
+
+
 class IRetrainer(ABC):
     """(Phase 2) Decide whether to retrain and trigger it."""
 

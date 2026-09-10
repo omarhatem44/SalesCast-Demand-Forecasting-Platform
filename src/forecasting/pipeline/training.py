@@ -24,6 +24,7 @@ from forecasting.implementations.preprocessors.generic import (
     SlidingWindowBuilder,
 )
 from forecasting.implementations.profilers.schema_detector import HeuristicSchemaDetector
+from forecasting.implementations.tracking.mlflow_tracker import build_tracker
 
 
 class TrainingPipeline:
@@ -36,6 +37,16 @@ class TrainingPipeline:
         cfg = self.cfg
         horizon = cfg.get("horizon", 7)
         lookback = cfg.get("lookback", 14)
+        metric = cfg.get("selection_metric", "rmspe")
+
+        tracker = build_tracker(cfg)
+        tracker.start_run(
+            run_name=f"train-h{horizon}-l{lookback}",
+            params={"horizon": horizon, "lookback": lookback,
+                    "models": cfg.get("models", []), "selection_metric": metric,
+                    "data_path": cfg.get("data_path"),
+                    "single_group": cfg.get("single_group")},
+        )
 
         # 1. Load
         df = CsvLoader(cfg["data_path"], nrows=cfg.get("nrows")).load()
@@ -87,14 +98,25 @@ class TrainingPipeline:
                   f"RMSPE={res.rmspe:.4f}")
 
         # 7. Select best
-        best_name = BestByMetricSelector(cfg.get("selection_metric", "rmspe")).select(results)
+        tracker.log_results(results)
+        best_name = BestByMetricSelector(metric).select(results)
         print(f"[select] best model: {best_name}")
 
         # 8. Persist
         pre.save(os.path.join(self.artifacts, "preprocessor.joblib"))
         best_model, _ = trained[best_name]
         ext = ".keras" if best_name == "lstm" else ".joblib"
-        best_model.save(os.path.join(self.artifacts, f"model_{best_name}{ext}"))
+        model_path = os.path.join(self.artifacts, f"model_{best_name}{ext}")
+        best_model.save(model_path)
+
+        # 8b. Register the winner and gate promotion on beating the champion.
+        best_metric = getattr(next(r for r in results if r.model_name == best_name), metric)
+        registration = tracker.register_best(best_name, model_path, metric, best_metric)
+        if registration:
+            state = "promoted to Production" if registration["promoted"] else (
+                f"held as challenger (champion {metric}="
+                f"{registration['champion_value']:.4f})")
+            print(f"[registry] version {registration['version']} {state}")
 
         summary = {
             "best_model": best_name,
@@ -109,6 +131,8 @@ class TrainingPipeline:
                 "frequency": schema.frequency,
             },
             "profile_warnings": profile.warnings,
+            "model_version": (f"v{registration['version']}" if registration else "v1"),
+            "registry": registration,
         }
         with open(os.path.join(self.artifacts, "summary.json"), "w") as f:
             json.dump(summary, f, indent=2)
@@ -126,5 +150,6 @@ class TrainingPipeline:
             )
         except Exception:  # noqa: BLE001
             pass
+        tracker.end_run()
         print(f"[done] artifacts -> {self.artifacts}")
         return summary

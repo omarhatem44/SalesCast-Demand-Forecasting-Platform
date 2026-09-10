@@ -12,3 +12,10 @@ selection_metric: "rmspe"
 single_group: 1
 
 schema_overrides: {}
+# Experiment tracking + model registry. Off by default so a clean clone trains
+# without any external service; the Airflow retraining DAG turns it on.
+mlflow:
+  enabled: true
+  experiment: salescast
+  tracking_uri: null          # null -> sqlite:///mlflow.db, or $MLFLOW_TRACKING_URI
+  registered_model: salescast-forecaster

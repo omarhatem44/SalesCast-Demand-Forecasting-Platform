@@ -8,6 +8,8 @@ artifacts/*
 !artifacts/.gitkeep
 
 mlruns/
+mlartifacts/
+mlflow.db
 
 *.joblib
 *.keras

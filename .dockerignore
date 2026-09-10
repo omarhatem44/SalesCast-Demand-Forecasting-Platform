@@ -1,0 +1,26 @@
+# Keep the build context small and the image reproducible.
+# artifacts/ is deliberately NOT excluded: the serving image needs the trained
+# model, so run `python main.py` before building Dockerfile.serve.
+.git/
+.github/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+
+tests/
+airflow/
+dashboard/*.map
+
+mlruns/
+mlartifacts/
+mlflow.db
+
+*.md
+!README.md
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

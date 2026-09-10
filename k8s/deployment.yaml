@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: salescast-api
+  labels:
+    app: salescast
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: salescast
+  template:
+    metadata:
+      labels:
+        app: salescast
+    spec:
+      containers:
+        - name: api
+          # Built from Dockerfile.serve. Train first (python main.py) so the
+          # artifacts the API loads are baked into the image.
+          image: salescast-serve:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: ARTIFACTS_DIR
+              value: /app/artifacts
+          # Requests are what the HPA divides against, so they have to be set
+          # for autoscaling to work at all.
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20

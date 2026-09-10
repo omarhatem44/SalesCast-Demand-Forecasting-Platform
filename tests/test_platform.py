@@ -33,6 +33,11 @@ from forecasting.implementations.preprocessors.generic import (
     SlidingWindowBuilder,
 )
 from forecasting.implementations.profilers.schema_detector import HeuristicSchemaDetector
+from forecasting.implementations.tracking.mlflow_tracker import (
+    MLflowTracker,
+    NullTracker,
+    build_tracker,
+)
 from forecasting.interfaces.contracts import (
     EvalResult,
     IDataLoader,
@@ -44,6 +49,7 @@ from forecasting.interfaces.contracts import (
     IMonitor,
     IPreprocessor,
     ISchemaDetector,
+    ITracker,
     IWindowBuilder,
 )
 
@@ -242,6 +248,51 @@ def test_evidently_monitor_always_returns_a_usable_report():
     report = EvidentlyDriftMonitor().check_drift(ref, cur)
     assert set(report) >= {"method", "drift_share", "dataset_drift"}
     assert isinstance(report["dataset_drift"], bool)
+
+
+def test_null_tracker_satisfies_the_interface_and_is_inert():
+    t = NullTracker()
+    assert isinstance(t, ITracker)
+    assert t.active is False
+    t.start_run("x", {"a": 1})
+    t.log_results([])
+    assert t.register_best("xgboost", "nowhere.joblib", "rmspe", 0.1) is None
+    t.end_run()
+
+
+def test_build_tracker_returns_a_no_op_when_tracking_is_disabled():
+    assert isinstance(build_tracker({}), NullTracker)
+    assert isinstance(build_tracker({"mlflow": {"enabled": False}}), NullTracker)
+
+
+def test_registry_promotes_the_first_model_then_gates_a_worse_one(tmp_path):
+    """The registry only earns its place if promotion is conditional."""
+    pytest.importorskip("mlflow")
+    import joblib
+
+    uri = f"sqlite:///{tmp_path / 'reg.db'}"
+    blob = tmp_path / "model.joblib"
+    joblib.dump({"models": [], "horizon": 7}, blob)
+
+    def run(metric_value: float):
+        t = MLflowTracker(experiment="test", tracking_uri=uri,
+                          registered_model="test-model")
+        assert t.active
+        t.start_run(f"run-{metric_value}", {"metric": metric_value})
+        out = t.register_best("xgboost", str(blob), "rmspe", metric_value)
+        t.end_run()
+        return out
+
+    first = run(0.20)
+    assert first is not None and first["promoted"] is True
+    assert first["version"] == 1
+
+    worse = run(0.35)
+    assert worse["promoted"] is False           # champion defended
+    assert worse["champion_value"] == pytest.approx(0.20)
+
+    better = run(0.11)
+    assert better["promoted"] is True           # challenger wins on merit
 
 
 # -- model round-trip ------------------------------------------
