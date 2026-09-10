@@ -76,7 +76,7 @@ model version read from the MLflow registry.
 **Airflow retraining DAG (conditional branching):** the graph view showing retraining
 skipped when no drift is detected.
 
-<img src="airflow/dag-graph.png" width="900" alt="Airflow DAG graph"/>
+<img src="airflow/Path.png" width="900" alt="Airflow DAG graph"/>
 
 ---
 
