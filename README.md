@@ -17,6 +17,7 @@ business recommendations, **monitors data drift in production**, and
 [![MLflow](https://img.shields.io/badge/MLflow-Registry-0194E2?style=for-the-badge&logo=mlflow&logoColor=white)](https://mlflow.org)
 [![Docker](https://img.shields.io/badge/Docker-Containerized-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docker.com)
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-Online-3DDC84?style=for-the-badge)](https://salescast.duckdns.org)
+![CI](https://github.com/omarhatem44/SalesCast-Demand-Forecasting-Platform/actions/workflows/ci.yml/badge.svg)
 
 **🌐 Live demo: [salescast.duckdns.org](https://salescast.duckdns.org)**
 
