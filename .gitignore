@@ -30,3 +30,4 @@ airflow/logs/
 !airflow/logs/.gitkeep
 airflow/plugins/__pycache__/
 airflow/config/
+patch.json

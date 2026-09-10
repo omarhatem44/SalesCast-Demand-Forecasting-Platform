@@ -1,0 +1,54 @@
+# Load generator for demonstrating the HPA. Applied manually, not part of
+# kustomization.yaml — this is a demo tool, not part of the service.
+#
+#   kubectl create configmap forecast-payload --from-file=payload.json=forecast-payload.json
+#   kubectl apply -f k8s/loadtest.yaml
+#   kubectl get hpa salescast-api --watch
+#   kubectl delete -f k8s/loadtest.yaml && kubectl delete cm forecast-payload
+#
+# It posts to /forecast rather than /health on purpose: /health returns a
+# constant and consumes almost no CPU, so hammering it would never move the
+# HPA off its floor. /forecast runs preprocessing, feature engineering, window
+# building and model inference, which is the work the service actually does.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: salescast-loadtest
+  labels:
+    app: salescast-loadtest
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: salescast-loadtest
+  template:
+    metadata:
+      labels:
+        app: salescast-loadtest
+    spec:
+      containers:
+        - name: curl
+          image: curlimages/curl:8.8.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              while true; do
+                curl -s -o /dev/null -X POST \
+                  -H 'Content-Type: application/json' \
+                  --data @/payload/payload.json \
+                  http://salescast-api/forecast
+              done
+          volumeMounts:
+            - name: payload
+              mountPath: /payload
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+      volumes:
+        - name: payload
+          configMap:
+            name: forecast-payload
