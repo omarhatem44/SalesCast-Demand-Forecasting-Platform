@@ -6,18 +6,19 @@
 It detects a dataset's structure automatically, engineers features, trains and
 compares multiple models, auto-selects the best, serves 7-day forecasts with
 business recommendations, **monitors data drift in production**, and
-**retrains automatically when drift is detected**.
+**retrains only when drift is detected**, with every run tracked and every model
+version gated on beating the current champion.
 
+[![CI](https://github.com/omarhatem44/SalesCast-Demand-Forecasting-Platform/actions/workflows/ci.yml/badge.svg)](https://github.com/omarhatem44/SalesCast-Demand-Forecasting-Platform/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![XGBoost](https://img.shields.io/badge/XGBoost-Baseline-EB5E28?style=for-the-badge)](https://xgboost.ai)
 [![TensorFlow](https://img.shields.io/badge/LSTM-TensorFlow-FF6F00?style=for-the-badge&logo=tensorflow&logoColor=white)](https://tensorflow.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Serving-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Evidently](https://img.shields.io/badge/Evidently-Drift-37C0D8?style=for-the-badge)](https://evidentlyai.com)
 [![Airflow](https://img.shields.io/badge/Airflow-Retraining-017CEE?style=for-the-badge&logo=apacheairflow&logoColor=white)](https://airflow.apache.org)
-[![MLflow](https://img.shields.io/badge/MLflow-Registry-0194E2?style=for-the-badge&logo=mlflow&logoColor=white)](https://mlflow.org)
+[![MLflow](https://img.shields.io/badge/MLflow-Tracking%20%26%20Registry-0194E2?style=for-the-badge&logo=mlflow&logoColor=white)](https://mlflow.org)
 [![Docker](https://img.shields.io/badge/Docker-Containerized-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docker.com)
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-Online-3DDC84?style=for-the-badge)](https://salescast.duckdns.org)
-![CI](https://github.com/omarhatem44/SalesCast-Demand-Forecasting-Platform/actions/workflows/ci.yml/badge.svg)
 
 **🌐 Live demo: [salescast.duckdns.org](https://salescast.duckdns.org)**
 
@@ -30,9 +31,12 @@ business recommendations, **monitors data drift in production**, and
 - [Screenshots](#-screenshots)
 - [Architecture & design decisions](#-architecture--design-decisions)
 - [Phase 1 — the forecasting MVP](#-phase-1--the-forecasting-mvp)
-- [Phase 2 — monitoring & automated retraining](#-phase-2--monitoring--automated-retraining)
+- [Phase 2 — monitoring, tracking & automated retraining](#-phase-2--monitoring-tracking--automated-retraining)
+- [Testing & CI](#-testing--ci)
+- [What is running and what is not](#-what-is-running-and-what-is-not)
 - [Quick start](#-quick-start)
 - [Project structure](#-project-structure)
+- [Engineering notes](#-engineering-notes)
 - [Roadmap](#-roadmap)
 
 ---
@@ -43,29 +47,36 @@ Most forecasting projects hardcode one dataset's column names and train one mode
 SalesCast is built around **SOLID interfaces** so every stage is replaceable, and the
 pipeline works on **any** business time-series with minimal configuration:
 
-<img src="src/assets/architecture.png" width="900" alt="SalesCast Archi"/>
+<img src="src/assets/architecture.png" width="900" alt="SalesCast architecture"/>
 
-**Rossmann retail sales is only the first dataset**. Nothing in the pipeline is
-Rossmann-specific — the schema detector finds the date/target/feature roles
-automatically, so the same code forecasts energy demand, restaurant orders, or
-supply-chain volume.
+**Rossmann retail sales is the dataset it was built and validated on.** Nothing in the
+pipeline is Rossmann-specific: the schema detector infers the date, target, group and
+feature roles from the file itself. That claim is tested rather than asserted —
+`test_detects_schema_with_no_retail_column_names` runs the detector against a frame
+with no retail vocabulary anywhere (`timestamp`, `load_mw`, `temperature_c`) and
+asserts it still finds the right columns, flags the target as a low-confidence guess,
+and says so in its notes.
+
+Running it on a second real domain end to end is Phase 3 work, not a claim made here.
 
 ---
 
 ## 📸 Screenshots
 
-**Forecasting dashboard (live):**  store selector, 7-day forecast with confidence band, KPIs, inventory recommendations.
+**Forecasting dashboard (live):** store selector, 7-day forecast with confidence band,
+KPIs, inventory recommendations.
 
 <img src="src/assets/dashboard.png" width="900" alt="SalesCast dashboard"/>
 
-**Model Health panel (Phase 2 drift monitoring):** last retrain, data drift, prediction drift, model version.
+**Model Health panel (drift monitoring):** last retrain, data drift, prediction drift,
+model version read from the MLflow registry.
 
 <img src="src/assets/model-health.png" width="400" alt="Model health panel"/>
 
+**Airflow retraining DAG (conditional branching):** the graph view showing retraining
+skipped when no drift is detected.
 
-**Airflow retraining DAG (conditional branching):** the graph view showing retraining skipped when no drift is detected.
-
-<img src="airflow/Path.png" width="900" alt="Airflow DAG graph"/>
+<img src="airflow/dag-graph.png" width="900" alt="Airflow DAG graph"/>
 
 ---
 
@@ -75,11 +86,11 @@ Every major stage is an abstract interface (`abc.ABC`) with interchangeable
 implementations, wired via a config-driven registry. **New models or preprocessors
 can be added without modifying existing code** (Open/Closed Principle).
 
-| Interface | Responsibility | Phase 1 implementation |
+| Interface | Responsibility | Implementation |
 |---|---|---|
 | `IDataLoader` | load raw data | `CsvLoader`, `DataFrameLoader` |
 | `IDataProfiler` | statistics + quality flags | `BasicProfiler` |
-| `ISchemaDetector` | auto-detect date/target/features | `HeuristicSchemaDetector` |
+| `ISchemaDetector` | auto-detect date/target/group/features | `HeuristicSchemaDetector` |
 | `IPreprocessor` | clean / encode / scale (schema-driven) | `GenericPreprocessor` |
 | `IFeatureEngineer` | calendar / lag / rolling features | `CalendarFeatureEngineer` |
 | `IWindowBuilder` | sliding windows for sequences | `SlidingWindowBuilder` |
@@ -88,23 +99,40 @@ can be added without modifying existing code** (Open/Closed Principle).
 | `IModelSelector` | pick the best model | `BestByMetricSelector` |
 | `IForecaster` | serve N-day forecast + insight | `Forecaster` |
 | `IMonitor` | drift detection | `EvidentlyDriftMonitor` (+ PSI fallback) |
+| `ITracker` | experiment tracking + model registry | `MLflowTracker`, `NullTracker` |
 | `IRetrainer` | retrain decision | Airflow branching DAG |
 
 **Why interfaces?** So the platform can grow. Adding Prophet later is:
+
 ```python
 @register_model("prophet")
 class ProphetForecaster(IModel): ...
 # instantly available to the pipeline, selector, and API — zero other changes
 ```
 
+That is asserted in the test suite, not just claimed:
+`test_new_model_registers_without_touching_the_pipeline` registers a model at runtime
+and checks the pipeline can resolve it.
+
+---
+
 ## 🚀 Phase 1 — the forecasting MVP
 
 Generic pipeline · auto schema detection · XGBoost + LSTM · auto-selection ·
-FastAPI · retail-analytics dashboard · Docker · Kubernetes manifests · HTTPS.
+FastAPI · retail-analytics dashboard · Docker · HTTPS.
 
-**Modeling — honest, not dogmatic.** The platform trains both models, evaluates on
-MAE/RMSE/RMSPE, and auto-selects the winner. On Rossmann, XGBoost beats the LSTM and
-is chosen automatically — the system reports this truthfully rather than forcing DL.
+**Modeling — honest, not dogmatic.** The platform trains both models on the same
+windows and the same chronological split, evaluates on MAE/RMSE/RMSPE, and
+auto-selects the winner. On Rossmann, **XGBoost wins (RMSPE 0.162 vs 0.234)** and the
+system reports that rather than forcing the deep model.
+
+That comparison only means something because both models are given a fair run.
+`LSTMForecaster` standardises its own target internally: the window builder hands
+every model raw values in the thousands, and trees are scale-invariant while a network
+trained on those values under MSE starts at a loss in the tens of millions and never
+leaves zero. Before that fix the LSTM scored RMSPE 0.996 — which is not a model losing,
+it is a model predicting nothing. A regression test now pins it below 0.6 so the
+comparison cannot silently become meaningless again.
 
 **Dashboard.** A retail-analytics interface (not just a chart): store selector,
 historical sales, 7-day forecast with confidence band, KPIs, and inventory
@@ -120,28 +148,62 @@ recommendations derived from the forecast trend.
 | `GET /health` | liveness |
 | `GET /model-info` | approved model, metrics, detected schema |
 | `POST /forecast` | 7-day forecast + business insight for a series |
-| `GET /model-health` | *(Phase 2)* drift status + model metadata |
-| `POST /model-health` | *(Phase 2)* drift check against posted recent data |
+| `GET /model-health` | drift status + model metadata |
+| `POST /model-health` | drift check against posted recent data |
 
 ---
 
-## 🔁 Phase 2 — monitoring & automated retraining
+## 🔁 Phase 2 — monitoring, tracking & automated retraining
 
 ### Drift monitoring
+
 The **Model Health** panel on the dashboard shows, in real time:
+
 - **Last retrain** timestamp
 - **Data drift** status + share
 - **Prediction drift** status
-- **Model version** and approved model
+- **Model version**, read from the MLflow registry's `Production` alias
 
-Backed by `EvidentlyDriftMonitor` with a PSI fallback (see technique #7). The
-`/model-health` endpoint compares recent data against the saved training reference
-and returns a status: *HEALTHY*, *DRIFT DETECTED — retraining recommended*, or
-*MONITORING*.
+Backed by `EvidentlyDriftMonitor` with a PSI fallback — see
+[Engineering notes](#-engineering-notes). The `/model-health` endpoint compares recent
+data against the saved training reference and returns *HEALTHY*,
+*DRIFT DETECTED — retraining recommended*, or *MONITORING*.
+
+### Experiment tracking & model registry
+
+Every training run logs its parameters and per-model metrics to MLflow, and the
+selected model is registered as a new version. Promotion is **champion/challenger**,
+not automatic:
+
+```
+[eval] xgboost  MAE=824.34 RMSE=1105.24 RMSPE=0.1621
+[eval] lstm     MAE=2000.16 RMSE=2559.29 RMSPE=0.2335
+[select] best model: xgboost
+[registry] version 1 promoted to Production
+```
+
+A later run that trains a worse model still gets registered, but does not take the
+alias:
+
+```
+[registry] version 2 held as challenger (champion rmspe=0.1643)
+```
+
+That gate is the reason to have a registry at all — without it, "registered" just
+means "saved somewhere else as well". The behaviour is covered by
+`test_registry_promotes_the_first_model_then_gates_a_worse_one`, which registers a
+good model, a worse one, and a better one, and asserts the alias moves only on merit.
+
+Tracking sits behind `ITracker` with a `NullTracker` fallback, so a clean clone trains
+with no MLflow server present and training never fails because a side-channel is down.
+
+```bash
+mlflow ui --backend-store-uri sqlite:///mlflow.db     # Model training → salescast
+```
 
 ### Airflow retraining DAG
 
-`salescast_retraining` — a production-quality DAG with **conditional retraining**:
+`salescast_retraining` — a DAG with **conditional retraining**:
 
 ```
 data_ingestion → data_validation → feature_engineering → drift_detection → decide_retrain
@@ -163,11 +225,17 @@ data_ingestion → data_validation → feature_engineering → drift_detection �
 otherwise it skips straight to keeping the current model. This avoids needless
 retraining and demonstrates conditional orchestration — not a linear script.
 
+Registration and promotion happen inside `TrainingPipeline`, so a model goes through
+the same gate whether training was started by this DAG or by hand. The DAG's
+`register_in_mlflow` task reads the result and **fails the run if no registration
+happened**, rather than reporting success for a step that silently no-opped.
+
 **Deployment note:** Airflow runs **locally** (Docker Compose) for orchestration and
 demos; the production instance serves only the API. This mirrors real setups where
 orchestration is separate from the serving layer.
 
 **Run it:**
+
 ```bash
 cd airflow
 docker compose build
@@ -178,12 +246,58 @@ docker compose up -d
 
 ---
 
+## 🧪 Testing & CI
+
+`tests/test_platform.py` holds interface smoke tests: not model accuracy, but the
+contracts the platform rests on. Every implementation is checked against its ABC, the
+registry is checked for the Open/Closed property, schema detection is checked on both
+retail and non-retail data, drift detection is checked to separate a stable
+distribution from a shifted one, and the registry gate is checked to defend a champion.
+
+```bash
+pytest -q
+```
+
+GitHub Actions runs four jobs on every push and pull request:
+
+| Job | What it protects |
+|---|---|
+| **Tests** | the interface contracts and regression tests |
+| **Training smoke test** | trains end to end and fails if the selected model's RMSPE looks broken — a green unit suite does not prove the pipeline still trains |
+| **Docker images build** | both images build from a clean checkout, so the image can never quietly depend on an uncommitted file |
+| **Kubernetes manifests** | `kubeconform -strict` against the manifests in `k8s/` |
+
+---
+
+## 📍 What is running and what is not
+
+Claims in a README are cheap, so here is the split.
+
+| | Status |
+|---|---|
+| FastAPI service, dashboard, HTTPS | running |
+| Docker (training + slim serving images) | built, and rebuilt from clean in CI |
+| MLflow tracking and registry with gated promotion | working, local SQLite backend |
+| Evidently drift monitoring + PSI fallback | working, surfaced in the dashboard |
+| Airflow conditional retraining DAG | runs locally |
+| Kubernetes manifests (Deployment, Service, HPA) | written and CI-validated, **not yet applied to a cluster** |
+| Autoscaling | **not demonstrated** — the HPA has never scaled a real pod |
+| AWS | **not deployed** — the live demo runs on a single host |
+| `deploy_model` task in the DAG | **a stub** — it logs intent; the retrained model is not rolled out automatically |
+| Drift input to the DAG | **simulated** for the demo; it resamples the reference rather than reading a live production window |
+
+[`DEPLOY.md`](DEPLOY.md) has the runbook for closing the Kubernetes and AWS rows,
+including the metrics-server step without which the HPA reports `<unknown>` and never
+scales.
+
+---
+
 ## ⚡ Quick start
 
 ```bash
 pip install -r requirements.txt
 
-# drop the real Rossmann train.csv in data/ (or use the included synthetic sample)
+# drop the real Rossmann train.csv in data/ (or use the included sample)
 python main.py                      # detects schema, trains both models, auto-selects
 
 uvicorn api.main:app --host 0.0.0.0 --port 8000
@@ -191,10 +305,15 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 ```
 
 **Deploy (slim, TF-free serving image):**
+
 ```bash
+python main.py                                            # artifacts/ must exist first
 docker build -f Dockerfile.serve -t salescast .
 docker run -d --name salescast -p 8000:8000 salescast
 ```
+
+The serving image loads the trained model from `artifacts/`, which is gitignored — so
+train before building, or the container starts and fails its readiness probe.
 
 ---
 
@@ -207,23 +326,54 @@ salescast/
 │   ├── core/registry.py                 # pluggable-model registry
 │   ├── implementations/
 │   │   ├── loaders/        profilers/   preprocessors/
-│   │   ├── models/         evaluators/  monitors/    # monitors = Phase 2 drift
+│   │   ├── models/         evaluators/  monitors/
+│   │   └── tracking/mlflow_tracker.py   # MLflow tracking + gated registry
 │   └── pipeline/
 │       ├── training.py                  # end-to-end training orchestrator
 │       ├── forecaster.py                # loads approved model, 7-day forecast
-│       └── health.py                    # Phase 2 model-health service
+│       └── health.py                    # model-health service
 ├── api/main.py                          # FastAPI (forecast + health endpoints)
 ├── dashboard/index.html                 # retail-analytics UI + health panel
 ├── airflow/
 │   ├── dags/salescast_retraining_dag.py # conditional retraining DAG
 │   ├── docker-compose.yaml              # local Airflow (LocalExecutor + Postgres)
 │   └── Dockerfile                       # Airflow image + platform deps
-├── config/config.yaml                   # data path, horizon, models, overrides
-├── K8s/                                 # deployment + service manifests
+├── k8s/                                 # deployment, service, HPA, kustomization
+├── .github/workflows/ci.yml             # tests, train smoke, docker, manifests
+├── config/config.yaml                   # data path, horizon, models, mlflow, overrides
 ├── tests/test_platform.py               # interface smoke tests
-├── main.py · Dockerfile · Dockerfile.serve
+├── conftest.py                          # puts src/ on sys.path for pytest
+├── main.py · Dockerfile · Dockerfile.serve · DEPLOY.md
 └── requirements.txt · requirements-serve.txt · requirements-monitoring.txt
 ```
+
+---
+
+## 🔧 Engineering notes
+
+Things that were not obvious until something broke.
+
+**Drift monitoring survives its own dependency.** Evidently changed its report API
+between 0.6 and 0.7. `EvidentlyDriftMonitor` tries both paths and falls back to a
+hand-written PSI monitor if neither imports, because a monitoring panel that goes down
+when a library upgrades is worse than one that degrades to a simpler metric.
+
+**A group column is not a column with an ID-ish name.** Detection originally returned
+the first column matching an ID name hint, which meant a low-cardinality categorical
+like `StoreType` could be picked as the series key on a single-series dataset — and the
+pipeline then filters on it, silently dropping most of the data. It now tests whether
+grouping actually makes `(group, date)` unique, and returns `None` when dates are
+already unique.
+
+**Scale matters for one model and not the other.** See the LSTM note in
+[Phase 1](#-phase-1--the-forecasting-mvp): comparing a scale-sensitive model against a
+scale-invariant one on unscaled targets is not a comparison.
+
+**The MLflow file store has no model registry.** `file://` gives you runs and silently
+no versions, so tracking defaults to `sqlite:///mlflow.db`. Models are logged as
+`pyfunc` so a registered version is genuinely loadable
+(`mlflow.pyfunc.load_model("models:/salescast-forecaster@Production")`), not just a
+file parked next to a run.
 
 ---
 
@@ -231,24 +381,30 @@ salescast/
 
 **✅ Phase 1 — Production MVP**
 Generic pipeline · auto schema detection · XGBoost + LSTM · auto-selection ·
-FastAPI · dashboard · Docker · K8s · HTTPS deployment.
+FastAPI · dashboard · Docker · HTTPS deployment.
 
-**✅ Phase 2 — Monitoring & Automation**
-Evidently/PSI drift monitoring · live model-health panel · Airflow retraining DAG
-with conditional (drift-triggered) retraining.
+**✅ Phase 2 — Monitoring, tracking & automation**
+Evidently/PSI drift monitoring · live model-health panel · Airflow retraining DAG with
+conditional (drift-triggered) retraining · MLflow tracking and model registry with
+champion/challenger promotion · test suite and CI.
 
-**🔮 Phase 3 — Self-Serve Platform**
+**🚧 Phase 3 — Real deployment**
+Apply `k8s/` to a live cluster and demonstrate the HPA scaling under load · replace the
+DAG's simulated drift input with a real production window · wire `deploy_model` to an
+actual rollout · move MLflow to a server-backed store so more than one process can
+write to it.
+
+**🔮 Phase 4 — Self-serve platform**
 CSV upload → automatic profiling → schema detection → preprocessing → feature
-engineering → model selection → forecast, hands-free. Multi-domain support
-(retail, energy, logistics, restaurants, supply chain) and an AutoML-style workflow.
-Full MLflow registry integration with champion/challenger promotion.
+engineering → model selection → forecast, hands-free. Multi-domain validation
+(energy, logistics, restaurants, supply chain) and an AutoML-style workflow.
 
 ---
 
 ## 👤 Author
 
 **Omar Hatem** — ML / MLOps Engineer · Cairo, Egypt
-[GitHub](https://github.com/omarhatem44) · [LinkedIn](https://www.linkedin.com/in/omar-h-mohamed-355ba4369/)
+[GitHub](https://github.com/omarhatem44) · [LinkedIn](https://www.linkedin.com/in/omar-hatem-mohamed-355ba4369/)
 
 ---
 
