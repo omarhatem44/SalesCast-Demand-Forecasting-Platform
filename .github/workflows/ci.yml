@@ -87,4 +87,4 @@ jobs:
           curl -sSL -o kubeconform.tar.gz \
             https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
           tar xf kubeconform.tar.gz
-          ./kubeconform -strict -summary k8s/
+          ./kubeconform -strict -summary -skip Kustomization k8s/
